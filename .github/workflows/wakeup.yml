@@ -1,0 +1,46 @@
+name: sn-pdi-wakeup_Private
+
+on:
+  schedule:
+  - cron: '0 * * * *'
+  workflow_dispatch: # Enables manual execution from GitHub UI
+
+jobs:
+  ping-instance:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Ping ServiceNow Table API
+        run: |
+          # Strip trailing slashes from the instance URL if present
+          URL="${{ secrets.SN_INSTANCE_URL }}"
+          URL="${URL%/}"
+
+          # Execute a lightweight GET request against the User table from ServiceNow
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -u "${{ secrets.SN_USERNAME }}:${{ secrets.SN_PASSWORD }}" \
+            -H "Accept: application/json" \
+            "$URL/api/now/table/sys_user?sysparm_limit=1")
+
+          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+            exit 0
+          else
+            exit 1
+          fi
+
+      - name: Keepalive Commit
+        run: |
+          LAST_COMMIT=$(git log -1 --format=%ct)
+          NOW=$(date +%s)
+          DAYS=$(( (NOW - LAST_COMMIT) / 86400 ))
+          if [ $DAYS -gt 50 ]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: keepalive commit"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
